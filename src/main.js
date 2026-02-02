@@ -7,6 +7,13 @@ import {
   deleteItem,
   setItemStatus,
 } from "./items";
+import {
+  createRequest,
+  watchIncomingRequests,
+  watchMyRequests,
+  acceptRequest,
+  rejectRequest,
+} from "./requests";
 
 const appEl = document.querySelector("#app");
 
@@ -19,22 +26,33 @@ function esc(s = "") {
     .replaceAll("'", "&#039;");
 }
 
-function itemCard(item) {
+function itemCard(item, currentUserId) {
+  const isMine = item.ownerId === currentUserId;
+  const requestBtn = isMine
+    ? `<span style="opacity:.7; font-size:12px;">(Your item)</span>`
+    : `<button type="button" data-request="${esc(item.id)}" data-owner="${esc(
+        item.ownerId
+      )}">Request Swap</button>`;
+
   return `
     <div class="card" style="text-align:left; margin-top:12px;">
       <div style="display:flex; justify-content:space-between; gap:12px; align-items:start;">
-        <div>
+        <div style="flex:1;">
           <h3 style="margin:0 0 6px 0;">${esc(item.title)}</h3>
           <div style="opacity:.8; font-size:14px;">
             <b>Category:</b> ${esc(item.category)} ·
-            Marketplace shows: <b>available</b> only
+            <b>Condition:</b> ${esc(item.condition)}
           </div>
           <div style="opacity:.8; font-size:14px; margin-top:4px;">
-            <b>Condition:</b> ${esc(item.condition)} ·
             <b>Location:</b> ${esc(item.locationText || "-")}
           </div>
           <p style="margin:10px 0; white-space:pre-wrap;">${esc(item.description)}</p>
+
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            ${requestBtn}
+          </div>
         </div>
+
         <div style="opacity:.7; font-size:12px; white-space:nowrap;">
           ${esc(item.status)}
         </div>
@@ -48,7 +66,7 @@ function myItemRow(item) {
   return `
     <div class="card" style="text-align:left; margin-top:12px;">
       <div style="display:flex; justify-content:space-between; gap:12px; align-items:start;">
-        <div>
+        <div style="flex:1;">
           <h3 style="margin:0 0 6px 0;">${esc(item.title)}</h3>
           <div style="opacity:.8; font-size:14px;">
             <b>Category:</b> ${esc(item.category)} ·
@@ -81,10 +99,62 @@ function myItemRow(item) {
   `;
 }
 
+function requestRowIncoming(req) {
+  const canAct = req.status === "pending";
+  return `
+    <div class="card" style="text-align:left; margin-top:12px;">
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:start;">
+        <div style="flex:1;">
+          <h3 style="margin:0 0 6px 0;">Incoming Request</h3>
+          <div style="opacity:.85; font-size:14px;">
+            <b>Status:</b> ${esc(req.status)}
+          </div>
+          <div style="opacity:.85; font-size:14px; margin-top:4px;">
+            <b>Item ID:</b> ${esc(req.itemId)}
+          </div>
+          <div style="opacity:.85; font-size:14px; margin-top:4px;">
+            <b>Requester ID:</b> ${esc(req.requesterId)}
+          </div>
+
+          <div style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+            ${
+              canAct
+                ? `<button data-accept="${esc(req.id)}" type="button">Accept</button>
+                   <button data-reject="${esc(req.id)}" type="button">Reject</button>`
+                : `<span style="opacity:.7;">No actions</span>`
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function requestRowOutgoing(req) {
+  return `
+    <div class="card" style="text-align:left; margin-top:12px;">
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:start;">
+        <div style="flex:1;">
+          <h3 style="margin:0 0 6px 0;">My Request</h3>
+          <div style="opacity:.85; font-size:14px;">
+            <b>Status:</b> ${esc(req.status)}
+          </div>
+          <div style="opacity:.85; font-size:14px; margin-top:4px;">
+            <b>Item ID:</b> ${esc(req.itemId)}
+          </div>
+          <div style="opacity:.85; font-size:14px; margin-top:4px;">
+            <b>Owner ID:</b> ${esc(req.itemOwnerId)}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderLoggedOut() {
   appEl.innerHTML = `
     <div class="card">
-      <h2>Save&Swap v2 — Auth + Items</h2>
+      <h2>Save&Swap v2 — Auth + Items + Requests</h2>
 
       <div style="display:grid; gap:10px; max-width:360px; margin: 0 auto;">
         <label>
@@ -134,8 +204,10 @@ function renderLoggedOut() {
   });
 }
 
-let unsubscribeMarket = null;
-let unsubscribeMine = null;
+let unsubMarket = null;
+let unsubMine = null;
+let unsubIncoming = null;
+let unsubOutgoing = null;
 
 function renderLoggedIn(user) {
   appEl.innerHTML = `
@@ -198,6 +270,17 @@ function renderLoggedIn(user) {
     </div>
 
     <div class="card" style="text-align:left; margin-top:12px;">
+      <h2 style="margin-top:0;">Incoming Requests (for your items)</h2>
+      <div id="incomingList" style="margin-top:8px;"></div>
+      <div id="incomingMsg" style="margin-top:10px; opacity:.85;"></div>
+    </div>
+
+    <div class="card" style="text-align:left; margin-top:12px;">
+      <h2 style="margin-top:0;">My Requests</h2>
+      <div id="outgoingList" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card" style="text-align:left; margin-top:12px;">
       <h2 style="margin-top:0;">My Listings</h2>
       <div id="myItemsList" style="margin-top:8px;"></div>
       <div id="myMsg" style="margin-top:10px; opacity:.85;"></div>
@@ -206,6 +289,7 @@ function renderLoggedIn(user) {
     <div class="card" style="text-align:left; margin-top:12px;">
       <h2 style="margin-top:0;">Marketplace (Available Items)</h2>
       <div id="marketList" style="margin-top:8px;"></div>
+      <div id="marketMsg" style="margin-top:10px; opacity:.85;"></div>
     </div>
   `;
 
@@ -217,10 +301,18 @@ function renderLoggedIn(user) {
   const myItemsList = document.querySelector("#myItemsList");
   const myMsg = document.querySelector("#myMsg");
   const marketList = document.querySelector("#marketList");
+  const marketMsg = document.querySelector("#marketMsg");
+
+  const incomingList = document.querySelector("#incomingList");
+  const incomingMsg = document.querySelector("#incomingMsg");
+  const outgoingList = document.querySelector("#outgoingList");
 
   const showItemMsg = (t) => (itemMsg.textContent = t);
   const showMyMsg = (t) => (myMsg.textContent = t);
+  const showMarketMsg = (t) => (marketMsg.textContent = t);
+  const showIncomingMsg = (t) => (incomingMsg.textContent = t);
 
+  // Create item
   document.querySelector("#createItemBtn").addEventListener("click", async () => {
     showItemMsg("Posting...");
     try {
@@ -254,15 +346,15 @@ function renderLoggedIn(user) {
   });
 
   // My listings subscription
-  if (unsubscribeMine) unsubscribeMine();
-  unsubscribeMine = watchMyItems(user.uid, (items) => {
+  if (unsubMine) unsubMine();
+  unsubMine = watchMyItems(user.uid, (items) => {
     if (!items.length) {
       myItemsList.innerHTML = `<div style="opacity:.8;">You have no listings yet.</div>`;
       return;
     }
     myItemsList.innerHTML = items.map(myItemRow).join("");
 
-    // Wire up status dropdowns
+    // Status dropdowns
     document.querySelectorAll("select[data-status]").forEach((sel) => {
       sel.addEventListener("change", async (e) => {
         const itemId = e.target.getAttribute("data-status");
@@ -277,7 +369,7 @@ function renderLoggedIn(user) {
       });
     });
 
-    // Wire up delete buttons
+    // Delete buttons
     document.querySelectorAll("button[data-delete]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         const itemId = e.target.getAttribute("data-delete");
@@ -295,23 +387,93 @@ function renderLoggedIn(user) {
     });
   });
 
-  // Marketplace subscription (available only)
-  if (unsubscribeMarket) unsubscribeMarket();
-  unsubscribeMarket = watchAvailableItems((items) => {
+  // Marketplace subscription + request button wiring
+  if (unsubMarket) unsubMarket();
+  unsubMarket = watchAvailableItems((items) => {
     if (!items.length) {
       marketList.innerHTML = `<div style="opacity:.8;">No available items yet.</div>`;
       return;
     }
-    marketList.innerHTML = items.map(itemCard).join("");
+
+    marketList.innerHTML = items.map((it) => itemCard(it, user.uid)).join("");
+
+    document.querySelectorAll("button[data-request]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        const itemId = e.target.getAttribute("data-request");
+        const ownerId = e.target.getAttribute("data-owner");
+
+        showMarketMsg("Sending request...");
+        try {
+          await createRequest({
+            itemId,
+            itemOwnerId: ownerId,
+            requesterId: user.uid,
+          });
+          showMarketMsg("✅ Request sent!");
+        } catch (err) {
+          showMarketMsg(`❌ ${err.code || "error"}: ${err.message}`);
+        }
+      });
+    });
+  });
+
+  // Incoming requests subscription
+  if (unsubIncoming) unsubIncoming();
+  unsubIncoming = watchIncomingRequests(user.uid, (reqs) => {
+    if (!reqs.length) {
+      incomingList.innerHTML = `<div style="opacity:.8;">No incoming requests yet.</div>`;
+      return;
+    }
+    incomingList.innerHTML = reqs.map(requestRowIncoming).join("");
+
+    document.querySelectorAll("button[data-accept]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        const requestId = e.target.getAttribute("data-accept");
+        showIncomingMsg("Accepting...");
+        try {
+          await acceptRequest(requestId);
+          showIncomingMsg("✅ Accepted");
+        } catch (err) {
+          showIncomingMsg(`❌ ${err.code || "error"}: ${err.message}`);
+        }
+      });
+    });
+
+    document.querySelectorAll("button[data-reject]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        const requestId = e.target.getAttribute("data-reject");
+        showIncomingMsg("Rejecting...");
+        try {
+          await rejectRequest(requestId);
+          showIncomingMsg("✅ Rejected");
+        } catch (err) {
+          showIncomingMsg(`❌ ${err.code || "error"}: ${err.message}`);
+        }
+      });
+    });
+  });
+
+  // Outgoing requests subscription
+  if (unsubOutgoing) unsubOutgoing();
+  unsubOutgoing = watchMyRequests(user.uid, (reqs) => {
+    if (!reqs.length) {
+      outgoingList.innerHTML = `<div style="opacity:.8;">You have not requested any swaps yet.</div>`;
+      return;
+    }
+    outgoingList.innerHTML = reqs.map(requestRowOutgoing).join("");
   });
 }
 
 watchAuth((user) => {
   if (!user) {
-    if (unsubscribeMarket) unsubscribeMarket();
-    if (unsubscribeMine) unsubscribeMine();
-    unsubscribeMarket = null;
-    unsubscribeMine = null;
+    if (unsubMarket) unsubMarket();
+    if (unsubMine) unsubMine();
+    if (unsubIncoming) unsubIncoming();
+    if (unsubOutgoing) unsubOutgoing();
+    unsubMarket = null;
+    unsubMine = null;
+    unsubIncoming = null;
+    unsubOutgoing = null;
     renderLoggedOut();
     return;
   }
