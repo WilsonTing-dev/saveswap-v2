@@ -11,6 +11,7 @@ import {
   doc,
   updateDoc,
 } from "firebase/firestore";
+import { setItemStatus } from "./items";
 
 /**
  * Create a swap request for an item.
@@ -59,11 +60,18 @@ export function watchMyRequests(requesterId, callback) {
   });
 }
 
-export async function acceptRequest(requestId) {
+/**
+ * Accept a request and set the item status to pending.
+ * (Owner-only allowed by rules for requests and items)
+ */
+export async function acceptRequest(requestId, itemId) {
   await updateDoc(doc(db, "requests", requestId), {
     status: "accepted",
     updatedAt: serverTimestamp(),
   });
+
+  // also update item status
+  await setItemStatus(itemId, "pending");
 }
 
 export async function rejectRequest(requestId) {

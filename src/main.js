@@ -354,7 +354,6 @@ function renderLoggedIn(user) {
     }
     myItemsList.innerHTML = items.map(myItemRow).join("");
 
-    // Status dropdowns
     document.querySelectorAll("select[data-status]").forEach((sel) => {
       sel.addEventListener("change", async (e) => {
         const itemId = e.target.getAttribute("data-status");
@@ -369,7 +368,6 @@ function renderLoggedIn(user) {
       });
     });
 
-    // Delete buttons
     document.querySelectorAll("button[data-delete]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         const itemId = e.target.getAttribute("data-delete");
@@ -387,7 +385,7 @@ function renderLoggedIn(user) {
     });
   });
 
-  // Marketplace subscription + request button wiring
+  // Marketplace subscription + request
   if (unsubMarket) unsubMarket();
   unsubMarket = watchAvailableItems((items) => {
     if (!items.length) {
@@ -424,15 +422,18 @@ function renderLoggedIn(user) {
       incomingList.innerHTML = `<div style="opacity:.8;">No incoming requests yet.</div>`;
       return;
     }
+
     incomingList.innerHTML = reqs.map(requestRowIncoming).join("");
 
+    // ACCEPT: now also sets item -> pending
     document.querySelectorAll("button[data-accept]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         const requestId = e.target.getAttribute("data-accept");
         showIncomingMsg("Accepting...");
         try {
-          await acceptRequest(requestId);
-          showIncomingMsg("✅ Accepted");
+          const itemId = reqs.find((r) => r.id === requestId)?.itemId;
+          await acceptRequest(requestId, itemId);
+          showIncomingMsg("✅ Accepted (item set to pending)");
         } catch (err) {
           showIncomingMsg(`❌ ${err.code || "error"}: ${err.message}`);
         }
